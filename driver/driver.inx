@@ -1,0 +1,33 @@
+;
+; rmtrd.inf
+;
+
+[Version]
+Signature="$WINDOWS NT$"
+Class=System
+ClassGuid={4d36e97d-e325-11ce-bfc1-08002be10318}
+Provider=%ManufacturerName%
+DriverVer = 11/25/2024,13.51.49.102
+CatalogFile=rmtrd.cat
+PnpLockDown=1
+
+[DestinationDirs]
+DefaultDestDir = 12
+
+
+[SourceDisksNames]
+1 = %DiskName%,,,""
+
+[SourceDisksFiles]
+
+
+[Manufacturer]
+
+
+[Standard.NTamd64]
+
+
+[Strings]
+ManufacturerName="<Your manufacturer name>" ;TODO: Replace with your manufacturer name
+ClassName=""
+DiskName="rmtrd Source Disk"
