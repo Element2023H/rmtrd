@@ -1,6 +1,6 @@
 # RMTRD
 
-### A driver for detecting and intercepting malicious threads creation in target process
+### A kernel mode solution for detecting and prevent malicious threads creation in target process 
 
 ## Features
 
