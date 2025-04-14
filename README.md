@@ -1,5 +1,9 @@
 # RMTRD
 
+<p align='left'>
+EN | <a href='./README_zh_CN.md'>中文</a>
+</p>
+
 ### A kernel mode solution for detecting and prevent malicious threads creation in target process using [windows-driver-rs](https://github.com/microsoft/windows-drivers-rs)
 
 ## Features
