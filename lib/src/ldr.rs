@@ -49,17 +49,6 @@ pub fn get_user_ldrs_x64(process: PEPROCESS) -> Option<Vec<LdrModuleEntry>> {
         if peb.is_null() {
             return None;
         }
-
-        #[cfg(FALSE)]
-        {
-            let mut count = 20;
-    
-            // no loader, wait for almost 1000 milliseconds
-            while (*peb).Ldr.is_null() && count > 0 {
-                count -= 1;
-                delay(time::Duration::from_millis(50));
-            }
-        }
         
         // return if it stll not ready
         if (*peb).Ldr.is_null() {
@@ -101,17 +90,6 @@ pub fn get_user_ldrs_x86(process: PEPROCESS) -> Option<Vec<LdrModuleEntry>> {
     unsafe {
         let peb = PsGetProcessWow64Process(process);
 
-        #[cfg(FALSE)]
-        {
-            let mut count = 20;
-    
-            // no loader, wait for almost 1000 milliseconds
-            while (*peb).Ldr == 0 && count > 0 {
-                count -= 1;
-                delay(time::Duration::from_millis(50));
-            }
-        }
-        
         // return if it stll not ready
         if (*peb).Ldr == 0 {
             return None;
