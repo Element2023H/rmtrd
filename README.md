@@ -1,6 +1,6 @@
 # RMTRD
 
-### A kernel mode solution for detecting and prevent malicious threads creation in target process 
+### A kernel mode solution for detecting and prevent malicious threads creation in target process using [windows-driver-rs](https://github.com/microsoft/windows-drivers-rs)
 
 ## Features
 
@@ -29,6 +29,12 @@ you can find it here: [BlackBone](https://github.com/DarthTon/Blackbone)
 - prepare a DLL for injection
 - compile and start this driver
 - start notepad.exe and to see if the message box is popped up
+
+## Presentation - injection prevention against userland remote thread
+![Alt Text](assets/images/d1.gif)
+
+## Presentation - injection prevention against kernel mode remote thread 
+![Alt Text](assets/images/d2.gif)
 
 ## Requirements
 
