@@ -232,7 +232,7 @@ impl MaliciousThread {
     ///
     /// this is typically implemented by calling `RtlExitUserThread` </br>
     ///
-    /// NOTE: this method is not work when detection result is `IllegalModuleless`
+    /// NOTE: this method will not work when detection result is `IllegalModuleless`
     pub fn gracefully_exit(&mut self) {
         if self.thread_type <= ThreadType::Legal {
             return;
@@ -292,7 +292,7 @@ impl MaliciousThread {
         self.thread_type = ThreadType::None;
     }
 
-    /// force the thread exit by patching the startup code of thread
+    /// force the thread exit by patching the startup code of the thread
     pub fn force_exit(&mut self) {
         if self.thread_type <= ThreadType::Legal {
             return;

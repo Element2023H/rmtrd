@@ -9,7 +9,8 @@ use core::ptr;
 
 use wdk::{dbg_break, println};
 use wdk_sys::{
-    ntddk::{wcsstr, PsRemoveCreateThreadNotifyRoutine, PsSetCreateThreadNotifyRoutine}, KeLastBranchMSR, PsInitialSystemProcess, BOOLEAN, GENERIC_ALL, HANDLE, NTSTATUS, PCUNICODE_STRING, PDRIVER_OBJECT
+    BOOLEAN, GENERIC_ALL, HANDLE, NTSTATUS, PCUNICODE_STRING, PDRIVER_OBJECT,
+    ntddk::{PsRemoveCreateThreadNotifyRoutine, PsSetCreateThreadNotifyRoutine, wcsstr},
 };
 
 use rmtrd::{
@@ -62,17 +63,6 @@ pub unsafe extern "system" fn driver_entry(
     #[cfg(debug_assertions)]
     {
         dbg_break();
-
-        // unsafe {
-        //     println!("PsInitialSystemProcess = {:p}", &*PsInitialSystemProcess);
-        // }
-        
-        unsafe {
-            if PsInitialSystemProcess.is_null() {
-                println!("Oh my God");
-            }
-        }
-
         println!("driver started");
     }
 
