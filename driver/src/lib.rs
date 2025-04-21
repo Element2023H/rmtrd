@@ -3,13 +3,9 @@
 #[cfg(not(test))]
 extern crate wdk_panic;
 
-const NOTEPAD: &[u8; 24] = b"n\0o\0t\0e\0p\0a\0d\0.\0e\0x\0e\0\0\0";
+const NOTEPAD: &str = "notepad.exe";
 
 extern crate alloc;
-
-use core::{mem, slice};
-
-use alloc::string::String;
 
 use wdk::{dbg_break, println};
 use wdk_sys::{
@@ -38,16 +34,9 @@ extern "C" fn thread_notify_routine(process_id: HANDLE, thread_id: HANDLE, creat
             kobject::KernelHandleRef::from_process(process.get(), GENERIC_READ)
         {
             if let Some(process_image_path) = utils::get_process_image_path(process_handle.get()) {
-                let target = String::from_utf16_lossy(unsafe {
-                    slice::from_raw_parts(
-                        NOTEPAD.as_ptr().cast(),
-                        NOTEPAD.len() / mem::size_of::<WCHAR>() - 1,
-                    )
-                });
-
                 // check if target process is under protected
                 // TODO: using strategy rules to detect malware thread in protected processes
-                if !ends_with_ignore_case(&process_image_path[..], &target[..]) {
+                if !ends_with_ignore_case(&process_image_path[..], NOTEPAD) {
                     return;
                 }
 
