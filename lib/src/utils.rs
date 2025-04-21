@@ -1,9 +1,10 @@
-use alloc::boxed::Box;
-use core::{arch::asm, mem, ptr, time};
+use alloc::{boxed::Box, string::String};
+use core::{arch::asm, mem, ptr, slice, time};
+use wdk::nt_success;
 use wdk_sys::{
     _MODE::KernelMode, _POOL_TYPE::NonPagedPoolNx, _PROCESSINFOCLASS::ProcessImageFileName, FALSE,
     HANDLE, LARGE_INTEGER, LONGLONG, PKTHREAD, PVOID, STATUS_BUFFER_TOO_SMALL,
-    STATUS_INFO_LENGTH_MISMATCH, ULONG, UNICODE_STRING, ntddk::KeDelayExecutionThread,
+    STATUS_INFO_LENGTH_MISMATCH, ULONG, UNICODE_STRING, WCHAR, ntddk::KeDelayExecutionThread,
 };
 
 use crate::{allocator::ExAllocatePoolWithTag, kernel::ZwQueryInformationProcess};
@@ -42,7 +43,7 @@ pub fn KeGetCurrentThread() -> PKTHREAD {
     (read_gs_qword(0x188) as PVOID).cast()
 }
 
-pub fn get_process_image_path(handle: HANDLE) -> Option<Box<UNICODE_STRING>> {
+pub fn get_process_image_path(handle: HANDLE) -> Option<String> {
     unsafe {
         let mut length: u32 = 0;
 
@@ -78,9 +79,15 @@ pub fn get_process_image_path(handle: HANDLE) -> Option<Box<UNICODE_STRING>> {
                 ptr::null_mut(),
             );
 
-            match status {
-                STATUS_SUCCESS => return Some(info),
-                _ => return None,
+            // NOTE:
+            // ZwQueryInformationProcess may return STATUS_SUCCESS with an empty unicode string
+            if nt_success(status) && info.Length > 0 {
+                let ret = String::from_utf16_lossy(slice::from_raw_parts(
+                    info.Buffer,
+                    info.Length as usize / mem::size_of::<WCHAR>(),
+                ));
+
+                return Some(ret);
             }
         }
     }

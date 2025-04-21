@@ -5,12 +5,16 @@ extern crate wdk_panic;
 
 const NOTEPAD: &[u8; 24] = b"n\0o\0t\0e\0p\0a\0d\0.\0e\0x\0e\0\0\0";
 
-use core::ptr;
+extern crate alloc;
+
+use core::{mem, slice};
+
+use alloc::string::String;
 
 use wdk::{dbg_break, println};
 use wdk_sys::{
-    BOOLEAN, GENERIC_ALL, HANDLE, NTSTATUS, PCUNICODE_STRING, PDRIVER_OBJECT,
-    ntddk::{PsRemoveCreateThreadNotifyRoutine, PsSetCreateThreadNotifyRoutine, wcsstr},
+    BOOLEAN, GENERIC_READ, HANDLE, NTSTATUS, PCUNICODE_STRING, PDRIVER_OBJECT, WCHAR,
+    ntddk::{PsRemoveCreateThreadNotifyRoutine, PsSetCreateThreadNotifyRoutine},
 };
 
 use rmtrd::{
@@ -20,6 +24,10 @@ use rmtrd::{
     utils,
 };
 
+fn ends_with_ignore_case(s: &str, suffix: &str) -> bool {
+    s.to_lowercase().ends_with(&suffix.to_lowercase())
+}
+
 extern "C" fn thread_notify_routine(process_id: HANDLE, thread_id: HANDLE, create: BOOLEAN) {
     if create == 0 {
         return;
@@ -27,18 +35,20 @@ extern "C" fn thread_notify_routine(process_id: HANDLE, thread_id: HANDLE, creat
 
     if let Ok(process) = kobject::ProcessObjectRef::from_process_id(process_id) {
         if let Ok(process_handle) =
-            kobject::KernelHandleRef::from_process(process.get(), GENERIC_ALL)
+            kobject::KernelHandleRef::from_process(process.get(), GENERIC_READ)
         {
             if let Some(process_image_path) = utils::get_process_image_path(process_handle.get()) {
-                unsafe {
-                    // check if target process is under protected
-                    // TODO: using strategy rules to detect malware thread in protected processes
-                    if process_image_path.Length > 0
-                        && wcsstr(process_image_path.Buffer, NOTEPAD.as_ptr().cast())
-                            == ptr::null_mut()
-                    {
-                        return;
-                    }
+                let target = String::from_utf16_lossy(unsafe {
+                    slice::from_raw_parts(
+                        NOTEPAD.as_ptr().cast(),
+                        NOTEPAD.len() / mem::size_of::<WCHAR>() - 1,
+                    )
+                });
+
+                // check if target process is under protected
+                // TODO: using strategy rules to detect malware thread in protected processes
+                if !ends_with_ignore_case(&process_image_path[..], &target[..]) {
+                    return;
                 }
 
                 if let Some(mut thread) = MaliciousThread::detect(process_id, thread_id) {

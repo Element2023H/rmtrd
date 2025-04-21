@@ -6,7 +6,12 @@ use wdk_sys::{
 };
 
 use crate::{
-    kernel::{PsGetProcessPeb, PsGetProcessWow64Process, RtlImageNtHeader}, pe::{self, IMAGE_NT_HEADERS32, IMAGE_NT_HEADERS64}, peb::{LDR_DATA_TABLE_ENTRY32, PEB_LDR_DATA32}, types::LDR_DATA_TABLE_ENTRY, utils::delay, CONTAINING_RECORD
+    CONTAINING_RECORD,
+    kernel::{PsGetProcessPeb, PsGetProcessWow64Process, RtlImageNtHeader},
+    pe::{self, IMAGE_NT_HEADERS32, IMAGE_NT_HEADERS64},
+    peb::{LDR_DATA_TABLE_ENTRY32, PEB_LDR_DATA32},
+    types::LDR_DATA_TABLE_ENTRY,
+    utils::delay,
 };
 
 #[repr(C)]
@@ -49,7 +54,7 @@ pub fn get_user_ldrs_x64(process: PEPROCESS) -> Option<Vec<LdrModuleEntry>> {
         if peb.is_null() {
             return None;
         }
-        
+
         // return if it stll not ready
         if (*peb).Ldr.is_null() {
             return None;
@@ -130,7 +135,7 @@ pub fn get_user_ldrs_x86(process: PEPROCESS) -> Option<Vec<LdrModuleEntry>> {
 
 pub fn get_user_ldrs(process: PEPROCESS) -> Option<Vec<LdrModuleEntry>> {
     let is_wow64 = unsafe { PsGetProcessWow64Process(process) } != ptr::null_mut();
-    
+
     if !is_wow64 {
         get_user_ldrs_x64(process)
     } else {
