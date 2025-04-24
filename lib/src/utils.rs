@@ -44,51 +44,53 @@ pub fn KeGetCurrentThread() -> PKTHREAD {
 }
 
 pub fn get_process_image_path(handle: HANDLE) -> Option<String> {
-    unsafe {
-        let mut length: u32 = 0;
+    let mut length: u32 = 0;
 
-        let mut status = ZwQueryInformationProcess(
+    let mut status = unsafe {
+        ZwQueryInformationProcess(
             handle,
             ProcessImageFileName as _,
             ptr::null_mut(),
             0,
             &mut length,
-        );
+        )
+    };
 
-        if status == STATUS_INFO_LENGTH_MISMATCH || status == STATUS_BUFFER_TOO_SMALL {
-            let buffer =
-                ExAllocatePoolWithTag(NonPagedPoolNx, length as _, u32::from_ne_bytes(*b"xxxx"))
-                    as *mut UNICODE_STRING;
+    if status == STATUS_INFO_LENGTH_MISMATCH || status == STATUS_BUFFER_TOO_SMALL {
+        let buffer = unsafe {
+            ExAllocatePoolWithTag(NonPagedPoolNx, length as _, u32::from_ne_bytes(*b"xxxx"))
+        } as *mut UNICODE_STRING;
 
-            if buffer.is_null() {
-                return None;
-            }
+        if buffer.is_null() {
+            return None;
+        }
 
-            let mut info = Box::from_raw(buffer);
+        let mut info = unsafe { Box::from_raw(buffer) };
 
-            info.Length = (length as usize - mem::size_of::<UNICODE_STRING>()) as u16;
-            info.MaximumLength = info.Length;
-            info.Buffer = (info.as_ref() as *const _ as *const u8)
-                .add(mem::size_of::<UNICODE_STRING>()) as *mut u16;
+        info.Length = (length as usize - mem::size_of::<UNICODE_STRING>()) as u16;
+        info.MaximumLength = info.Length;
+        info.Buffer = unsafe {
+            (info.as_ref() as *const _ as *const u8).add(mem::size_of::<UNICODE_STRING>())
+        } as *mut u16;
 
-            status = ZwQueryInformationProcess(
+        status = unsafe {
+            ZwQueryInformationProcess(
                 handle,
                 ProcessImageFileName as _,
                 info.as_mut() as *mut _ as PVOID,
                 length,
                 ptr::null_mut(),
-            );
+            )
+        };
 
-            // NOTE:
-            // ZwQueryInformationProcess may return STATUS_SUCCESS with an empty unicode string
-            if nt_success(status) && info.Length > 0 {
-                let ret = String::from_utf16_lossy(slice::from_raw_parts(
-                    info.Buffer,
-                    info.Length as usize / mem::size_of::<WCHAR>(),
-                ));
+        // NOTE:
+        // ZwQueryInformationProcess may return STATUS_SUCCESS with an empty unicode string
+        if nt_success(status) && info.Length > 0 {
+            let ret = String::from_utf16_lossy(unsafe {
+                slice::from_raw_parts(info.Buffer, info.Length as usize / mem::size_of::<WCHAR>())
+            });
 
-                return Some(ret);
-            }
+            return Some(ret);
         }
     }
 

@@ -103,123 +103,125 @@ impl MaliciousThread {
     fn validate_thread_address(&self) -> ThreadType {
         let mut start_address: PVOID = ptr::null_mut();
 
-        unsafe {
-            let mut status = ZwQueryInformationThread(
+        let mut status = unsafe {
+            ZwQueryInformationThread(
                 self.thread_handle.get(),
                 ThreadQuerySetWin32StartAddress as _,
                 &mut start_address as *mut _ as PVOID,
                 mem::size_of::<ULONG_PTR>() as _,
                 ptr::null_mut(),
-            );
+            )
+        };
 
-            if !nt_success(status) {
-                return ThreadType::Legal;
-            }
+        if !nt_success(status) {
+            return ThreadType::Legal;
+        }
 
-            let mut mem_info = MEMORY_BASIC_INFORMATION::default();
+        let mut mem_info = MEMORY_BASIC_INFORMATION::default();
 
-            // FIXME: ZwQueryInformationThread is not exported by ntoskrnl across all version of windows kernel
-            // its perferred to use MmGetSystemRoutine to obtain the function address and get it from SSDT when it is not exported by ntoskrnl.exe
-            status = ZwQueryVirtualMemory(
+        // FIXME: ZwQueryInformationThread is not exported by ntoskrnl across all version of windows kernel
+        // its perferred to use MmGetSystemRoutine to obtain the function address and get it from SSDT when it is not exported by ntoskrnl.exe
+        status = unsafe {
+            ZwQueryVirtualMemory(
                 self.process_handle.get(),
                 start_address,
                 MemoryBasicInformation,
                 &mut mem_info as *mut _ as PVOID,
                 mem::size_of_val(&mut mem_info) as u64,
                 ptr::null_mut(),
-            );
+            )
+        };
 
-            if !nt_success(status) {
-                return ThreadType::Legal;
+        if !nt_success(status) {
+            return ThreadType::Legal;
+        }
+
+        // FIXME: check if the start address is obfuscated with a unmeaningful value
+        // MmIsAddressValid will return FALSE when the main thread is just inserted at this point
+        // since the executable region is paged out
+        if start_address.is_null() {
+            return ThreadType::IllegalWithModule;
+        }
+
+        // illegal thread address outside of a PE module
+        if unsafe { (mem_info.AllocationBase as *const u16).read_unaligned() } != 0x5a4d {
+            println!("illegal thread start address at: {:p}", start_address);
+
+            return ThreadType::IllegalModuleless;
+        }
+
+        // start address is inside a PE module
+        // check if it contains a instruction tramplion
+        if !self.is_wow64 {
+            // case 1: jmp rcx, a instruction tramplion on x64
+            if unsafe { (start_address as *const u16).read_unaligned() } == 0xe1ff {
+                return ThreadType::IllegalModuleless;
             }
-
-            // FIXME: check if the start address is obfuscated with a unmeaningful value
-            // MmIsAddressValid will return FALSE when the main thread is just inserted at this point
-            // since the executable region is paged out
-            if start_address.is_null() {
-                return ThreadType::IllegalWithModule;
-            }
-
-            // illegal thread address outside of a PE module
-            if (mem_info.AllocationBase as *const u16).read_unaligned() != 0x5a4d {
-                println!("illegal thread start address at: {:p}", start_address);
-
+        } else {
+            // case 2: jmp [esp + 4] / call [esp + 4], instruction tramplions on x86
+            if unsafe { (start_address as *const u32).read_unaligned() } == 0x042464ff
+                || unsafe { (start_address as *const u32).read_unaligned() } == 0x042454ff
+            {
                 return ThreadType::IllegalModuleless;
             }
 
-            // start address is inside a PE module
-            // check if it contains a instruction tramplion
-            if !self.is_wow64 {
-                // case 1: jmp rcx, a instruction tramplion on x64
-                if (start_address as *const u16).read_unaligned() == 0xe1ff {
-                    return ThreadType::IllegalModuleless;
-                }
-            } else {
-                // case 2: jmp [esp + 4] / call [esp + 4], instruction tramplions on x86
-                if (start_address as *const u32).read_unaligned() == 0x042464ff
-                    || (start_address as *const u32).read_unaligned() == 0x042454ff
-                {
-                    return ThreadType::IllegalModuleless;
-                }
+            // more cases here...
+        }
 
-                // more cases here...
-            }
+        // normal remote thread injection
+        // check if start address is pointed to kernel32.dll-> LoadLibraryA/LoadLibraryW
+        if let Some(ldrs) = ldr::get_user_ldrs(self.process.get()) {
+            if let Some(dll) = ldrs
+                .iter()
+                .find(|x| x.BaseDllName.eq_ignore_ascii_case("kernel32.dll"))
+            {
+                let r = ldr::get_module_exports(dll.DllBase, self.is_wow64);
 
-            // normal remote thread injection
-            // check if start address is pointed to kernel32.dll-> LoadLibraryA/LoadLibraryW
-            if let Some(ldrs) = ldr::get_user_ldrs(self.process.get()) {
-                if let Some(dll) = ldrs
-                    .iter()
-                    .find(|x| x.BaseDllName.eq_ignore_ascii_case("kernel32.dll"))
-                {
-                    let r = ldr::get_module_exports(dll.DllBase, self.is_wow64);
+                if r.is_some() {
+                    let found = r
+                        .unwrap()
+                        .iter()
+                        .filter(|x| {
+                            x.FuncName == CString::new("LoadLibraryA").unwrap()
+                                || x.FuncName == CString::new("LoadLibraryW").unwrap()
+                        })
+                        .map(|x| x.FuncAddress)
+                        .any(|x| x == start_address);
 
-                    if r.is_some() {
-                        let found = r
-                            .unwrap()
-                            .iter()
-                            .filter(|x| {
-                                x.FuncName == CString::new("LoadLibraryA").unwrap()
-                                    || x.FuncName == CString::new("LoadLibraryW").unwrap()
-                            })
-                            .map(|x| x.FuncAddress)
-                            .any(|x| x == start_address);
-
-                        if found {
-                            println!(
-                                "illegal thread start address in kernel32.dll: {:p}",
-                                start_address
-                            );
-                            return ThreadType::IllegalWithModule;
-                        }
+                    if found {
+                        println!(
+                            "illegal thread start address in kernel32.dll: {:p}",
+                            start_address
+                        );
+                        return ThreadType::IllegalWithModule;
                     }
                 }
+            }
 
-                // check if start address is pointed to kernel32.dll-> LoadLibraryA/LoadLibraryW
-                if let Some(dll) = ldrs
-                    .iter()
-                    .find(|x| x.BaseDllName.eq_ignore_ascii_case("kernelbase.dll"))
-                {
-                    let r = ldr::get_module_exports(dll.DllBase, self.is_wow64);
+            // check if start address is pointed to kernel32.dll-> LoadLibraryA/LoadLibraryW
+            if let Some(dll) = ldrs
+                .iter()
+                .find(|x| x.BaseDllName.eq_ignore_ascii_case("kernelbase.dll"))
+            {
+                let r = ldr::get_module_exports(dll.DllBase, self.is_wow64);
 
-                    if r.is_some() {
-                        let found = r
-                            .unwrap()
-                            .iter()
-                            .filter(|x| {
-                                x.FuncName == CString::new("LoadLibraryA").unwrap()
-                                    || x.FuncName == CString::new("LoadLibraryW").unwrap()
-                            })
-                            .map(|x| x.FuncAddress)
-                            .any(|x| x == start_address);
+                if r.is_some() {
+                    let found = r
+                        .unwrap()
+                        .iter()
+                        .filter(|x| {
+                            x.FuncName == CString::new("LoadLibraryA").unwrap()
+                                || x.FuncName == CString::new("LoadLibraryW").unwrap()
+                        })
+                        .map(|x| x.FuncAddress)
+                        .any(|x| x == start_address);
 
-                        if found {
-                            println!(
-                                "illegal thread start address in kernelbase.dll: {:p}",
-                                start_address
-                            );
-                            return ThreadType::IllegalWithModule;
-                        }
+                    if found {
+                        println!(
+                            "illegal thread start address in kernelbase.dll: {:p}",
+                            start_address
+                        );
+                        return ThreadType::IllegalWithModule;
                     }
                 }
             }
