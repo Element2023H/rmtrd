@@ -7,10 +7,11 @@ const NOTEPAD: &str = "notepad.exe";
 
 extern crate alloc;
 
-use wdk::{dbg_break, println};
+use wdk::{dbg_break, paged_code, println};
 use wdk_sys::{
+    APC_LEVEL,
     BOOLEAN, GENERIC_READ, HANDLE, NTSTATUS, PCUNICODE_STRING, PDRIVER_OBJECT, WCHAR,
-    ntddk::{PsRemoveCreateThreadNotifyRoutine, PsSetCreateThreadNotifyRoutine},
+    ntddk::{KeGetCurrentIrql, PsRemoveCreateThreadNotifyRoutine, PsSetCreateThreadNotifyRoutine},
 };
 
 use rmtrd::{
@@ -25,6 +26,8 @@ fn ends_with_ignore_case(s: &str, suffix: &str) -> bool {
 }
 
 extern "C" fn thread_notify_routine(process_id: HANDLE, thread_id: HANDLE, create: BOOLEAN) {
+    paged_code!();
+
     if create == 0 {
         return;
     }

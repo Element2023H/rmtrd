@@ -1,17 +1,17 @@
 use core::{mem, ptr};
 
 use alloc::ffi::CString;
-use wdk::{nt_success, println};
+use wdk::{nt_success, paged_code, println};
 use wdk_sys::{
     _LOCK_OPERATION::IoReadAccess,
     _MEMORY_INFORMATION_CLASS::MemoryBasicInformation,
     _MM_PAGE_PRIORITY::NormalPagePriority,
     _MODE::UserMode,
     _THREADINFOCLASS::ThreadQuerySetWin32StartAddress,
-    GENERIC_ALL, HANDLE, KAPC_STATE, MEMORY_BASIC_INFORMATION, MmHighestUserAddress,
+    APC_LEVEL, GENERIC_ALL, HANDLE, KAPC_STATE, MEMORY_BASIC_INFORMATION, MmHighestUserAddress,
     PAGE_EXECUTE_READWRITE, PAGE_SIZE, PVOID, ULONG_PTR,
     ntddk::{
-        IoAllocateMdl, IoFreeMdl, KeStackAttachProcess, KeUnstackDetachProcess,
+        IoAllocateMdl, IoFreeMdl, KeGetCurrentIrql, KeStackAttachProcess, KeUnstackDetachProcess,
         MmProbeAndLockProcessPages, MmUnlockPages, ZwQueryVirtualMemory,
     },
 };
@@ -58,6 +58,8 @@ impl MaliciousThread {
     }
 
     pub fn detect(process_id: HANDLE, thread_id: HANDLE) -> Option<Self> {
+        paged_code!();
+
         if process_id == ulong_to_handle(4) {
             return None;
         }
@@ -101,6 +103,8 @@ impl MaliciousThread {
 
     /// validate the thread start address to see if it is relative to malware
     fn validate_thread_address(&self) -> ThreadType {
+        paged_code!();
+
         let mut start_address: PVOID = ptr::null_mut();
 
         let mut status = unsafe {
@@ -236,6 +240,8 @@ impl MaliciousThread {
     ///
     /// NOTE: this method will not work when detection result is `IllegalModuleless`
     pub fn gracefully_exit(&mut self) {
+        paged_code!();
+
         if self.thread_type <= ThreadType::Legal {
             return;
         }
@@ -296,6 +302,8 @@ impl MaliciousThread {
 
     /// force the thread exit by patching the startup code of the thread
     pub fn force_exit(&mut self) {
+        paged_code!();
+        
         if self.thread_type <= ThreadType::Legal {
             return;
         }

@@ -1,10 +1,13 @@
 use alloc::{boxed::Box, string::String};
 use core::{arch::asm, mem, ptr, slice, time};
-use wdk::nt_success;
+use wdk::{nt_success, paged_code};
 use wdk_sys::{
-    _MODE::KernelMode, _POOL_TYPE::NonPagedPoolNx, _PROCESSINFOCLASS::ProcessImageFileName, FALSE,
-    HANDLE, LARGE_INTEGER, LONGLONG, PKTHREAD, PVOID, STATUS_BUFFER_TOO_SMALL,
-    STATUS_INFO_LENGTH_MISMATCH, ULONG, UNICODE_STRING, WCHAR, ntddk::KeDelayExecutionThread,
+    _MODE::KernelMode,
+    _POOL_TYPE::NonPagedPoolNx,
+    _PROCESSINFOCLASS::ProcessImageFileName,
+    APC_LEVEL, FALSE, HANDLE, LARGE_INTEGER, LONGLONG, PKTHREAD, PVOID, STATUS_BUFFER_TOO_SMALL,
+    STATUS_INFO_LENGTH_MISMATCH, ULONG, UNICODE_STRING, WCHAR,
+    ntddk::{KeDelayExecutionThread, KeGetCurrentIrql},
 };
 
 use crate::{allocator::ExAllocatePoolWithTag, kernel::ZwQueryInformationProcess};
@@ -44,6 +47,8 @@ pub fn KeGetCurrentThread() -> PKTHREAD {
 }
 
 pub fn get_process_image_path(handle: HANDLE) -> Option<String> {
+    paged_code!();
+
     let mut length: u32 = 0;
 
     let mut status = unsafe {
