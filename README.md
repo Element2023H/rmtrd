@@ -1,55 +1,76 @@
 # RMTRD
 
+EN | [中文](./README_zh_CN.md)
 
-<p align='left'>
-EN | <a href='./README_zh_CN.md'>中文</a>
-</p>
-
-### A kernel mode solution for detecting and prevent malicious threads creation in target process using [windows-driver-rs](https://github.com/microsoft/windows-drivers-rs)
+A kernel mode solution for detecting and preventing the creation of malicious
+threads in a target process on Windows.
 
 ## Features
 
-**Detection**
- - detecting malicious thread created from user mode that calling CreateRemoteThread with start address pointed to LoadLibraryA(W) in kernel32.dll or kernelbase.dll
- - detecting malicious thread created from kernel mode that calling ZwCreateThreadEx with start address starts pointed to a wild address which allocated from ZwAllocateVirtualMemory
- - detecting malicious thread created from both user mode or kernel mode that its start address points to an instruction tramplion
-
-**Interception**
- - intercepting malicious thread creation by making it exit gracefully
- - intercepting malicious thread creation by making it exit forcely
-
-> [!NOTE]
-> the driver project only demonstrates how to detecting and interceping malicious thread creation in process notepad.exe, user can add more complicated strategy rules to filter the process that needs to be protected  
-> some code of this project is referenced from BlackBone and porting to rust  
-you can find it here: [BlackBone](https://github.com/DarthTon/Blackbone) 
-
-## How to Verify
-### using process-hacker
-- complie and start this driver
-- prepare a DLL that can be used for injection and do something attracting attention such as pop up a message box in the DLL
-- using process-hacker to inject that DLL into notepad.exe and to see if the message box is popped up
-
-### using another kernel driver for injection
-- prepare your own driver for injection, typically by creating a remote thread in kernel mode in process creation callbacks
-- prepare a DLL for injection
-- compile and start this driver
-- start notepad.exe and to see if the message box is popped up
-
-## Presentation - injection prevention against userland remote thread
-![Alt Text](assets/images/d1.gif)
-
-## Presentation - injection prevention against kernel mode remote thread 
-![Alt Text](assets/images/d2.gif)
+- Detects malicious threads created in user mode that call `CreateRemoteThread`
+  with a start address pointing to `LoadLibraryA(W)` in `kernel32.dll` or
+  `kernelbase.dll`.
+- Detects malicious threads created in kernel mode that call `ZwCreateThreadEx`
+  with a start address pointing to a wild address allocated by
+  `ZwAllocateVirtualMemory`.
+- Detects malicious threads created from either user mode or kernel mode with a
+  start address pointing to an instruction jump point.
+- Intercepts malicious thread creation by making it exit gracefully or
+  forcefully.
 
 ## Requirements
 
-- wdk-sys 0.3.0 or higher
 - WDK 10.0.22621.2428 or higher
-- Windows SDK 10.0.22621.2428 or higher
+- Windows SDK 10.0.22621.2428 or higher.
+- wdk-sys 0.3.0 or higher (installation instructions in [windows-drivers-rs])
 
-> [!IMPORTANT]
-> This project depends on wdk-sys 0.3.0 or higher  
-> please follow the installation instructions in [windows-driver-rs](https://github.com/microsoft/windows-drivers-rs) before compiling
+## Demonstrations
+
+<div align="center">
+
+![](./assets/images/d1.gif)\
+*Injection prevention against userland remote thread*
+
+</div>
+
+<div align="center">
+
+![](./assets/images/d2.gif)\
+*Injection prevention against kernel mode remote thread*
+
+</div>
+
+> [!NOTE]\
+> This project demonstrates the detection and interception of malicious threads
+> using `notepad.exe`. Users can implement more complex strategy rules to
+> filter the processes that need protection.
+>
+> Some code in this project is adapted from [BlackBone] and has been ported to
+> Rust.
+
+## Testing and Validation
+
+### Method 1: Using Process Hacker
+
+1. Compile and start this driver.
+1. Prepare a DLL for injection that performs an attention-grabbing action, such
+   as displaying a message box.
+1. Use [Process Hacker] to inject the DLL into `notepad.exe` and check if the
+   message box appears.
+
+### Method 2: Using Another Kernel Driver for Injection
+
+1. Prepare your own driver for injection, typically by creating a remote thread
+   in kernel mode during process creation callbacks.
+1. Prepare a DLL for injection.
+1. Compile and start this driver.
+1. Launch `notepad.exe` and verify if the message box appears.
 
 ## License
-rmtrd is licensed under the MIT License. Dependencies are under their respective licenses.
+
+rmtrd is licensed under the MIT License. Dependencies are under their
+respective licenses.
+
+[blackbone]: https://github.com/DarthTon/Blackbone
+[process hacker]: https://github.com/winsiderss/systeminformer
+[windows-drivers-rs]: https://github.com/microsoft/windows-drivers-rs
