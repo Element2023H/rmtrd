@@ -1,4 +1,7 @@
-use core::{mem, ptr};
+use core::{
+    mem::{self},
+    ptr, usize,
+};
 
 use alloc::ffi::CString;
 use wdk::{nt_success, paged_code, println};
@@ -23,7 +26,7 @@ use crate::{
         allocate_virtual_memory,
     },
     kobject::{self, *},
-    ldr,
+    ldr, pe,
     utils::ulong_to_handle,
 };
 
@@ -98,11 +101,115 @@ impl MaliciousThread {
 
         self.attached = true;
 
-        self.thread_type = self.validate_thread_address();
+        self.thread_type = self.validate_thread();
+    }
+
+    /// Perform PE image header validation
+    ///
+    /// - header fields validation
+    /// - PE magic validation
+    /// - PE machine type validation
+    /// - entry point address validation
+    /// - image directories validation
+    fn verify_pe_header(&self, header: PVOID) -> bool {
+        let dos_header = unsafe { &*(header as *const pe::IMAGE_DOS_HEADER) };
+
+        if dos_header.e_magic != 0x5a4d {
+            return false;
+        }
+
+        if dos_header.e_lfanew == 0 {
+            return false;
+        }
+
+        if dos_header.e_lfanew > PAGE_SIZE as _ {
+            return false;
+        }
+
+        let nt_header = unsafe {
+            &*((header as *const u8).wrapping_add(dos_header.e_lfanew as _)
+                as *const pe::IMAGE_NT_HEADERS64)
+        };
+
+        let nt_header32 = unsafe {
+            &*((header as *const u8).wrapping_add(dos_header.e_lfanew as _)
+                as *const pe::IMAGE_NT_HEADERS32)
+        };
+
+        if nt_header.FileHeader.NumberOfSections < 2
+            || nt_header.FileHeader.SizeOfOptionalHeader == 0
+        {
+            return false;
+        }
+
+        if nt_header.OptionalHeader.Magic != pe::IMAGE_NT_OPTIONAL_HDR32_MAGIC
+            && nt_header.OptionalHeader.Magic != pe::IMAGE_NT_OPTIONAL_HDR64_MAGIC
+        {
+            return false;
+        }
+
+        // DO NOT check the EntryPoint field here, since it may be null
+        // but we must check it later if it is not
+        if nt_header.OptionalHeader.BaseOfCode < PAGE_SIZE
+            || nt_header.OptionalHeader.ImageBase == 0
+            || nt_header.OptionalHeader.MajorLinkerVersion == 0
+        {
+            return false;
+        }
+
+        let mut image_base = 0usize;
+        let mut image_size = 0usize;
+        let code_base = nt_header.OptionalHeader.BaseOfCode;
+
+        if !self.is_wow64 {
+            image_base = nt_header.OptionalHeader.ImageBase as usize;
+            image_size = nt_header.OptionalHeader.SizeOfImage as usize;
+        } else {
+            image_base = nt_header.OptionalHeader.ImageBase as usize;
+            image_size = nt_header32.OptionalHeader.SizeOfImage as usize;
+        }
+
+        if image_size == 0 {
+            return false;
+        }
+
+        let mut entry_point = nt_header.OptionalHeader.AddressOfEntryPoint as usize;
+
+        if entry_point != 0 {
+            entry_point = entry_point + image_base as usize;
+
+            // check if entry point inside a valid image range
+            if !(entry_point > image_base && entry_point < image_base + image_size) {
+                return false;
+            }
+        }
+
+        // check if the directories RVA is in a valid image range
+        // we only check the export directory
+        let validate_dir = |id: usize, is_wow64: bool| -> bool {
+            if !is_wow64 {
+                let dir = &nt_header.OptionalHeader.DataDirectory[id];
+
+                if dir.VirtualAddress > 0 && (dir.Size as usize) < image_size {
+                    return true;
+                }
+            } else {
+                let dir = &nt_header32.OptionalHeader.DataDirectory[id];
+
+                if dir.VirtualAddress > 0 && (dir.Size as usize) < image_size {
+                    return true;
+                }
+            }
+
+            false
+        };
+
+        // we assume a valid module must have a valid reloc image directory
+        validate_dir(pe::IMAGE_DIRECTORY_ENTRY_BASERELOC, self.is_wow64)
     }
 
     /// validate the thread start address to see if it is relative to malware
-    fn validate_thread_address(&self) -> ThreadType {
+    fn validate_thread(&self) -> ThreadType {
         paged_code!();
 
         let mut start_address: PVOID = ptr::null_mut();
@@ -124,7 +231,7 @@ impl MaliciousThread {
         let mut mem_info = MEMORY_BASIC_INFORMATION::default();
 
         // FIXME: ZwQueryInformationThread is not exported by ntoskrnl across all version of windows kernel
-        // its perferred to use MmGetSystemRoutine to obtain the function address and get it from SSDT when it is not exported by ntoskrnl.exe
+        // it is preferred to use MmGetSystemRoutine to obtain the function address from SSDT when it is not exported by ntoskrnl.exe
         status = unsafe {
             ZwQueryVirtualMemory(
                 self.process_handle.get(),
@@ -148,7 +255,8 @@ impl MaliciousThread {
         }
 
         // illegal thread address outside of a PE module
-        if unsafe { (mem_info.AllocationBase as *const u16).read_unaligned() } != 0x5a4d {
+        if !self.verify_pe_header(mem_info.AllocationBase) {
+            #[cfg(debug_assertions)]
             println!("illegal thread start address at: {:p}", start_address);
 
             return ThreadType::IllegalModuleless;
@@ -193,10 +301,12 @@ impl MaliciousThread {
                         .any(|x| x == start_address);
 
                     if found {
+                        #[cfg(debug_assertions)]
                         println!(
                             "illegal thread start address in kernel32.dll: {:p}",
                             start_address
                         );
+
                         return ThreadType::IllegalWithModule;
                     }
                 }
@@ -221,10 +331,12 @@ impl MaliciousThread {
                         .any(|x| x == start_address);
 
                     if found {
+                        #[cfg(debug_assertions)]
                         println!(
                             "illegal thread start address in kernelbase.dll: {:p}",
                             start_address
                         );
+
                         return ThreadType::IllegalWithModule;
                     }
                 }
@@ -303,7 +415,7 @@ impl MaliciousThread {
     /// force the thread exit by patching the startup code of the thread
     pub fn force_exit(&mut self) {
         paged_code!();
-        
+
         if self.thread_type <= ThreadType::Legal {
             return;
         }
