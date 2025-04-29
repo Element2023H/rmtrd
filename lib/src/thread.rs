@@ -202,7 +202,7 @@ impl MaliciousThread {
                 }
             }
 
-            // check if start address is pointed to kernel32.dll-> LoadLibraryA/LoadLibraryW
+            // check if start address is pointed to kernelbase.dll-> LoadLibraryA/LoadLibraryW
             if let Some(dll) = ldrs
                 .iter()
                 .find(|x| x.BaseDllName.eq_ignore_ascii_case("kernelbase.dll"))
