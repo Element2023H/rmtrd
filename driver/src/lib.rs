@@ -32,11 +32,11 @@ extern "C" fn thread_notify_routine(process_id: HANDLE, thread_id: HANDLE, creat
         return;
     }
 
-    if let Ok(process) = kobject::ProcessObjectRef::from_process_id(process_id) {
+    if let Ok(process) = kobject::ProcessObject::from_process_id(process_id) {
         if let Ok(process_handle) =
-            kobject::KernelHandleRef::from_process(process.get(), GENERIC_READ)
+            kobject::KernelHandle::from_process(process.as_raw(), GENERIC_READ)
         {
-            if let Some(process_image_path) = utils::get_process_image_path(process_handle.get()) {
+            if let Some(process_image_path) = utils::get_process_image_path(process_handle.as_raw()) {
                 // check if target process is under protected
                 // TODO: using strategy rules to detect malware thread in protected processes
                 if !ends_with_ignore_case(&process_image_path[..], NOTEPAD) {

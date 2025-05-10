@@ -49,10 +49,10 @@ pub struct MaliciousThread {
     attached: bool,
     thread_type: ThreadType,
     apc_state: KAPC_STATE,
-    process: kobject::ProcessObjectRef,
-    thread: kobject::ThreadObjectRef,
-    process_handle: kobject::KernelHandleRef,
-    thread_handle: kobject::KernelHandleRef,
+    process: kobject::ProcessObject,
+    thread: kobject::ThreadObject,
+    process_handle: kobject::KernelHandle,
+    thread_handle: kobject::KernelHandle,
 }
 
 impl MaliciousThread {
@@ -67,14 +67,14 @@ impl MaliciousThread {
             return None;
         }
 
-        let process = kobject::ProcessObjectRef::from_process_id(process_id).ok()?;
+        let process = kobject::ProcessObject::from_process_id(process_id).ok()?;
         let process_handle =
-            kobject::KernelHandleRef::from_process(process.as_raw(), GENERIC_ALL).ok()?;
-        let thread = kobject::ThreadObjectRef::from_thread_id(thread_id).ok()?;
+            kobject::KernelHandle::from_process(process.as_raw(), GENERIC_ALL).ok()?;
+        let thread = kobject::ThreadObject::from_thread_id(thread_id).ok()?;
         let thread_handle =
-            kobject::KernelHandleRef::from_thread(thread.as_raw(), GENERIC_ALL).ok()?;
+            kobject::KernelHandle::from_thread(thread.as_raw(), GENERIC_ALL).ok()?;
 
-        let is_wow64 = unsafe { PsGetProcessWow64Process(process.get()) } != ptr::null_mut();
+        let is_wow64 = unsafe { PsGetProcessWow64Process(process.as_raw()) } != ptr::null_mut();
 
         let mut this = Self {
             process,
@@ -97,7 +97,7 @@ impl MaliciousThread {
 
     /// detect if a thread is a remote suspicious thread
     fn _detect(&mut self) {
-        unsafe { KeStackAttachProcess(self.process.get(), &mut self.apc_state) };
+        unsafe { KeStackAttachProcess(self.process.as_raw(), &mut self.apc_state) };
 
         self.attached = true;
 
@@ -216,7 +216,7 @@ impl MaliciousThread {
 
         let mut status = unsafe {
             ZwQueryInformationThread(
-                self.thread_handle.get(),
+                self.thread_handle.as_raw(),
                 ThreadQuerySetWin32StartAddress as _,
                 &mut start_address as *mut _ as PVOID,
                 mem::size_of::<ULONG_PTR>() as _,
@@ -234,7 +234,7 @@ impl MaliciousThread {
         // it is preferred to use MmGetSystemRoutine to obtain the function address from SSDT when it is not exported by ntoskrnl.exe
         status = unsafe {
             ZwQueryVirtualMemory(
-                self.process_handle.get(),
+                self.process_handle.as_raw(),
                 start_address,
                 MemoryBasicInformation,
                 &mut mem_info as *mut _ as PVOID,
@@ -282,7 +282,7 @@ impl MaliciousThread {
 
         // normal remote thread injection
         // check if start address is pointed to kernel32.dll-> LoadLibraryA/LoadLibraryW
-        if let Some(ldrs) = ldr::get_user_ldrs(self.process.get()) {
+        if let Some(ldrs) = ldr::get_user_ldrs(self.process.as_raw()) {
             if let Some(dll) = ldrs
                 .iter()
                 .find(|x| x.BaseDllName.eq_ignore_ascii_case("kernel32.dll"))
@@ -359,7 +359,7 @@ impl MaliciousThread {
         }
 
         if let Ok(mem) = allocate_virtual_memory(usize::MAX as HANDLE, 16, PAGE_EXECUTE_READWRITE) {
-            if let Some(ldrs) = ldr::get_user_ldrs(self.process.get()) {
+            if let Some(ldrs) = ldr::get_user_ldrs(self.process.as_raw()) {
                 if let Some(dll) = ldrs
                     .iter()
                     .find(|x| x.BaseDllName.eq_ignore_ascii_case("ntdll.dll"))
@@ -396,7 +396,7 @@ impl MaliciousThread {
                             }
 
                             let _ = queue_user_apc(
-                                self.thread.get(),
+                                self.thread.as_raw(),
                                 mem.cast(),
                                 ptr::null_mut(),
                                 ptr::null_mut(),
@@ -424,7 +424,7 @@ impl MaliciousThread {
 
         unsafe {
             let status = ZwQueryInformationThread(
-                self.thread_handle.get(),
+                self.thread_handle.as_raw(),
                 ThreadQuerySetWin32StartAddress as _,
                 &mut start_address as *mut _ as PVOID,
                 mem::size_of::<ULONG_PTR>() as _,
@@ -443,7 +443,7 @@ impl MaliciousThread {
                 if !mdl.is_null() {
                     MmProbeAndLockProcessPages(
                         mdl,
-                        self.process.get(),
+                        self.process.as_raw(),
                         UserMode as _,
                         IoReadAccess,
                     );

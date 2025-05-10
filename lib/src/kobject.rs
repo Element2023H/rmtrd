@@ -1,4 +1,4 @@
-use core::{ops::Deref, ptr};
+use core::{mem, ops::Deref, ptr::{self, NonNull}};
 
 use wdk::nt_success;
 use wdk_sys::{
@@ -13,23 +13,27 @@ use wdk_sys::{
 
 use crate::error::{NtError, cvt};
 
-pub struct ObjectRef<T> {
-    object: *mut T,
-}
+/// A owned kernel object wrapper
+// pub struct KernelObject<T> {
+//     object: *mut T,
+// }
+
+#[repr(transparent)]
+pub struct KernelObject<T>(*mut T);
 
 pub trait FromProcess {
-    fn from_process_id(id: HANDLE) -> Result<ObjectRef<_KPROCESS>, NtError>;
-    fn from_process_handle(handle: HANDLE, access: u32) -> Result<ObjectRef<_KPROCESS>, NtError>;
+    fn from_process_id(id: HANDLE) -> Result<KernelObject<_KPROCESS>, NtError>;
+    fn from_process_handle(handle: HANDLE, access: u32) -> Result<KernelObject<_KPROCESS>, NtError>;
 }
 
 pub trait FromThread {
-    fn from_thread_id(id: HANDLE) -> Result<ObjectRef<_KTHREAD>, NtError>;
-    fn from_thread_handle(id: HANDLE, access: u32) -> Result<ObjectRef<_KTHREAD>, NtError>;
+    fn from_thread_id(id: HANDLE) -> Result<KernelObject<_KTHREAD>, NtError>;
+    fn from_thread_handle(id: HANDLE, access: u32) -> Result<KernelObject<_KTHREAD>, NtError>;
 }
 
 // specialize for type ObjectRef<_KPROCESS>
-impl FromProcess for ObjectRef<_KPROCESS> {
-    fn from_process_id(id: HANDLE) -> Result<ObjectRef<_KPROCESS>, NtError> {
+impl FromProcess for KernelObject<_KPROCESS> {
+    fn from_process_id(id: HANDLE) -> Result<KernelObject<_KPROCESS>, NtError> {
         let mut value: PEPROCESS = ptr::null_mut();
 
         unsafe {
@@ -40,10 +44,10 @@ impl FromProcess for ObjectRef<_KPROCESS> {
             }
         }
 
-        Ok(ObjectRef::<_KPROCESS> { object: value })
+        Ok(KernelObject::<_KPROCESS>(value))
     }
 
-    fn from_process_handle(h: HANDLE, access: u32) -> Result<ObjectRef<_KPROCESS>, NtError> {
+    fn from_process_handle(h: HANDLE, access: u32) -> Result<KernelObject<_KPROCESS>, NtError> {
         let mut value: PVOID = ptr::null_mut();
 
         let status = unsafe {
@@ -61,13 +65,13 @@ impl FromProcess for ObjectRef<_KPROCESS> {
             return Err(NtError::from(status));
         }
 
-        Ok(ObjectRef::<_KPROCESS> { object: value as _ })
+        Ok(KernelObject::<_KPROCESS>(value.cast()))
     }
 }
 
 // specialize for type ObjectRef<_KTHREAD>
-impl FromThread for ObjectRef<_KTHREAD> {
-    fn from_thread_id(id: HANDLE) -> Result<ObjectRef<_KTHREAD>, NtError> {
+impl FromThread for KernelObject<_KTHREAD> {
+    fn from_thread_id(id: HANDLE) -> Result<KernelObject<_KTHREAD>, NtError> {
         let mut value: PETHREAD = ptr::null_mut();
 
         unsafe {
@@ -78,10 +82,10 @@ impl FromThread for ObjectRef<_KTHREAD> {
             }
         }
 
-        Ok(ObjectRef::<_KTHREAD> { object: value as _ })
+        Ok(KernelObject::<_KTHREAD>(value))
     }
 
-    fn from_thread_handle(h: HANDLE, access: u32) -> Result<ObjectRef<_KTHREAD>, NtError> {
+    fn from_thread_handle(h: HANDLE, access: u32) -> Result<KernelObject<_KTHREAD>, NtError> {
         let mut value: PVOID = ptr::null_mut();
 
         let status = unsafe {
@@ -99,82 +103,77 @@ impl FromThread for ObjectRef<_KTHREAD> {
             return Err(NtError::from(status));
         }
 
-        Ok(ObjectRef::<_KTHREAD> { object: value as _ })
+        Ok(KernelObject::<_KTHREAD>(value.cast()))
     }
 }
 
-impl<T> ObjectRef<T> {
+impl<T> KernelObject<T> {
     pub fn valid(&self) -> bool {
-        self.object != ptr::null_mut()
+        self.0 != ptr::null_mut()
     }
 
     pub fn as_raw(&self) -> *mut T {
-        self.object
-    }
-
-    pub fn get(&self) -> *mut T {
-        self.object
+        self.0
     }
 
     pub fn release(&mut self) {
         unsafe {
-            if !self.object.is_null() {
-                ObfDereferenceObject(self.object as PVOID);
-
-                self.object = ptr::null_mut();
+            if !self.0.is_null() {
+                ObfDereferenceObject(self.0 as PVOID);
+                let _ = mem::replace(&mut self.0, ptr::null_mut());
             }
         }
     }
 }
 
-impl<T> Drop for ObjectRef<T> {
+impl<T> Drop for KernelObject<T> {
     fn drop(&mut self) {
         self.release();
     }
 }
 
-impl From<PETHREAD> for ObjectRef<_KTHREAD> {
+impl From<PETHREAD> for KernelObject<_KTHREAD> {
     fn from(value: PETHREAD) -> Self {
-        Self { object: value }
+        Self(value)
     }
 }
 
-impl From<PEPROCESS> for ObjectRef<_KPROCESS> {
+impl From<PEPROCESS> for KernelObject<_KPROCESS> {
     fn from(value: PEPROCESS) -> Self {
-        Self { object: value }
+        Self(value)
     }
 }
 
-pub type ProcessObjectRef = ObjectRef<_KPROCESS>;
-pub type ThreadObjectRef = ObjectRef<_KTHREAD>;
+pub type ProcessObject = KernelObject<_KPROCESS>;
+pub type ThreadObject = KernelObject<_KTHREAD>;
 
-impl Deref for ProcessObjectRef {
+impl Deref for ProcessObject {
     type Target = PEPROCESS;
     fn deref(&self) -> &Self::Target {
-        &self.object
+        &self.0
     }
 }
 
-impl Deref for ThreadObjectRef {
+impl Deref for ThreadObject {
     type Target = PETHREAD;
     fn deref(&self) -> &Self::Target {
-        &self.object
+        &self.0
     }
 }
 
-pub struct KernelHandleRef {
-    handle: HANDLE,
-}
+/// A owned kernel handle wrapper
+#[repr(transparent)]
+pub struct KernelHandle(HANDLE);
 
-impl KernelHandleRef {
-    pub fn get(&self) -> HANDLE {
-        self.handle
+impl KernelHandle {
+    pub fn as_raw(&self) -> HANDLE {
+        self.0
     }
 
     pub fn from_process(process: PEPROCESS, access: ULONG) -> Result<Self, NtError> {
         let mut handle: HANDLE = ptr::null_mut();
         unsafe {
-            return cvt(ObOpenObjectByPointer(
+            cvt(ObOpenObjectByPointer(
                 process.cast(),
                 OBJ_KERNEL_HANDLE as _,
                 ptr::null_mut(),
@@ -183,7 +182,7 @@ impl KernelHandleRef {
                 KernelMode as _,
                 &mut handle,
             ))
-            .map(|_| Self { handle });
+            .map(|_| Self(handle))
         }
     }
 
@@ -191,7 +190,7 @@ impl KernelHandleRef {
         let mut handle: HANDLE = ptr::null_mut();
 
         unsafe {
-            return cvt(ObOpenObjectByPointer(
+            cvt(ObOpenObjectByPointer(
                 thread.cast(),
                 OBJ_KERNEL_HANDLE as _,
                 ptr::null_mut(),
@@ -200,25 +199,26 @@ impl KernelHandleRef {
                 KernelMode as _,
                 &mut handle,
             ))
-            .map(|_| Self { handle });
+            .map(|_| Self (handle))
         }
     }
 }
 
-impl Deref for KernelHandleRef {
+impl Deref for KernelHandle {
     type Target = HANDLE;
     fn deref(&self) -> &Self::Target {
-        &self.handle
+        &self.0
     }
 }
 
-impl Drop for KernelHandleRef {
+impl Drop for KernelHandle {
     fn drop(&mut self) {
-        if !self.handle.is_null() {
+        if !self.0.is_null() {
             unsafe {
-                let _ = ZwClose(self.handle);
+                let _ = ZwClose(self.0);
             }
-            self.handle = ptr::null_mut();
+
+            let _ = mem::replace(&mut self.0, ptr::null_mut());
         }
     }
 }
@@ -231,11 +231,11 @@ pub mod test {
     use super::*;
 
     pub fn test_kobject() {
-        if let Ok(process) = ProcessObjectRef::from_process_id(ulong_to_handle(4368)) {
+        if let Ok(process) = ProcessObject::from_process_id(ulong_to_handle(4368)) {
             println!("get process: {:p}", process.as_raw());
         }
 
-        if let Ok(thread) = ThreadObjectRef::from_thread_id(ulong_to_handle(4372)) {
+        if let Ok(thread) = ThreadObject::from_thread_id(ulong_to_handle(4372)) {
             println!("get thread: {:p}", thread.as_raw());
         }
     }
