@@ -1,17 +1,24 @@
+use core::num::NonZeroI32;
+
 use wdk_sys::NTSTATUS;
 
-#[derive(Clone, Copy)]
-pub struct NtError(NTSTATUS);
+#[repr(transparent)]
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub struct NtError(NonZeroI32);
 
 impl NtError {
+    pub fn new(value: NTSTATUS) -> Self {
+        Self(NonZeroI32::new(value).unwrap())
+    }
+    
     pub fn code(&self) -> NTSTATUS {
-        self.0
+        self.0.get()
     }
 }
 
 impl core::convert::From<NTSTATUS> for NtError {
     fn from(value: NTSTATUS) -> Self {
-        NtError(value)
+        NtError(NonZeroI32::new(value).unwrap())
     }
 }
 
