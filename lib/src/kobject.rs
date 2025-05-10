@@ -14,10 +14,6 @@ use wdk_sys::{
 use crate::error::{NtError, cvt};
 
 /// A owned kernel object wrapper
-// pub struct KernelObject<T> {
-//     object: *mut T,
-// }
-
 #[repr(transparent)]
 pub struct KernelObject<T>(*mut T);
 
