@@ -19,10 +19,10 @@ extern crate alloc;
 pub mod apc;
 pub mod error;
 pub mod kernel;
-pub mod kobject;
-pub mod ldr;
-pub mod pe;
-pub mod peb;
-pub mod types;
 pub mod utils;
 pub mod thread;
+
+pub(crate) mod ldr;
+pub(crate) mod pe;
+pub(crate) mod peb;
+pub(crate) mod types;
