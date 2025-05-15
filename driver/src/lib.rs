@@ -7,6 +7,7 @@ const NOTEPAD: &str = "notepad.exe";
 
 extern crate alloc;
 
+use ksync::{handle::{self, FromRawProcess}, kobject::{self, FromProcessId}};
 use wdk::{dbg_break, paged_code, println};
 use wdk_sys::{
     APC_LEVEL,
@@ -16,7 +17,6 @@ use wdk_sys::{
 
 use rmtrd::{
     kernel::*,
-    kobject::{self, FromProcess},
     thread::{MaliciousThread, ThreadType},
     utils,
 };
@@ -34,9 +34,9 @@ extern "C" fn thread_notify_routine(process_id: HANDLE, thread_id: HANDLE, creat
 
     if let Ok(process) = kobject::ProcessObject::from_process_id(process_id) {
         if let Ok(process_handle) =
-            kobject::KernelHandle::from_process(process.as_raw(), GENERIC_READ)
+            handle::ObjectHandle::from_process(process.get(), GENERIC_READ)
         {
-            if let Some(process_image_path) = utils::get_process_image_path(process_handle.as_raw()) {
+            if let Some(process_image_path) = utils::get_process_image_path(process_handle.get()) {
                 // check if target process is under protected
                 // TODO: using strategy rules to detect malware thread in protected processes
                 if !ends_with_ignore_case(&process_image_path[..], NOTEPAD) {
